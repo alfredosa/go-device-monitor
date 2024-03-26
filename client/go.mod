@@ -1,4 +1,4 @@
-module github.com/alfredosa/go-mdns-sensors-hub
+module github.com/alfredosa/go-sensors-client
 
 go 1.22.0
 

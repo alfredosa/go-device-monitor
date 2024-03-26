@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"time"
-
+	pb "github.com/alfredosa/go-sensors-client/proto"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+	"google.golang.org/grpc"
+	"log"
+	"time"
 )
 
 type MemoryUtilization struct {
@@ -20,6 +23,14 @@ type CpuUtilization struct {
 }
 
 func main() {
+
+	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewMonitorServiceClient(conn)
+
 	var (
 		memUtil MemoryUtilization
 		cpuUtil CpuUtilization
@@ -33,7 +44,6 @@ func main() {
 		cpuprcnt, _ := cpu.Percent(0, false)
 
 		cpuUtil.cpuPercent = cpuprcnt[0]
-		fmt.Printf("CPU percentage: %f%%\n", cpuUtil.cpuPercent)
 
 		if v.UsedPercent != memUtil.used {
 			publish = true
@@ -45,6 +55,20 @@ func main() {
 
 		if publish {
 			fmt.Printf("Total: %v, Free:%v, UsedPercent:%f%%\n", v.Total, v.Free, v.UsedPercent)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			r, err := c.SendUsage(ctx, &pb.UsageData{
+				CpuUsage: float32(cpuUtil.cpuPercent),
+				RamUsage: &pb.MemoryUsage{
+					Free:        float32(memUtil.free),
+					UsedPercent: float32(memUtil.used),
+					Total:       float32(memUtil.total),
+				},
+			})
+			if err != nil {
+				log.Fatalf("could not send usage: %v", err)
+			}
+			log.Printf("Response: %s", r.Message)
 		} else {
 			fmt.Printf("nothing to report\n")
 		}
