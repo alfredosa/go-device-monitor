@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package monitoring;
+option go_package = "github.com/alfredosa/go-device-monitoring;monitor";
+// The monitoring service definition.
+service MonitorService {
+  // Sends CPU and RAM usage data to the server
+  rpc SendUsage(UsageData) returns (UsageResponse) {}
+}
+
+// The request message containing the usage data.
+message UsageData {
+  float cpuUsage = 1;
+  MemoryUsage ramUsage = 2;
+}
+
+// Nested message for RAM usage details.
+message MemoryUsage {
+  float free = 1;
+  float usedPercent = 2;
+  float total = 3;
+}
+
+// The response message containing the server's response.
+message UsageResponse { string message = 1; }
