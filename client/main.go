@@ -3,74 +3,102 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"time"
+
 	pb "github.com/alfredosa/go-sensors-client/proto"
 	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"google.golang.org/grpc"
-	"log"
-	"time"
 )
 
-type MemoryUtilization struct {
-	total uint64
-	free  uint64
-	used  float64
-}
-
-type CpuUtilization struct {
-	times      string
-	cpuPercent float64
-}
-
+// BUG: SHOULD only track and send data. Do not store unecessary stuff on the heap :D it should be lightweight
 func main() {
+	// TODO: GET THIS REMOVED :) IT was to be read byu variable set in docker
+	// TODO: remove grpc with insecure, its deprecated
+	server_host := os.Getenv("SERVER_HOST")
 
-	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure(), grpc.WithBlock())
+	// NOTE: For now we use localhost :D
+	if server_host == "" {
+		log.Printf("Server host not set")
+
+		server_host = "localhost"
+	}
+
+	port := os.Getenv("SERVER_PORT")
+
+	if port == "" {
+		log.Fatalf("Server port not set")
+	}
+
+	conn, err := grpc.Dial(server_host+":"+port, grpc.WithInsecure(), grpc.WithBlock())
+
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
 	c := pb.NewMonitorServiceClient(conn)
 
-	var (
-		memUtil MemoryUtilization
-		cpuUtil CpuUtilization
-		publish bool
-	)
-
 	for {
-		publish = false
-		time.Sleep(3 * time.Second)
+		time.Sleep(10 * time.Second)
+
 		v, _ := mem.VirtualMemory()
-		cpuprcnt, _ := cpu.Percent(0, false)
-
-		cpuUtil.cpuPercent = cpuprcnt[0]
-
-		if v.UsedPercent != memUtil.used {
-			publish = true
+		memoryUsage := &pb.MemoryUsage{
+			Free:        float32(v.Free),
+			UsedPercent: float32(v.UsedPercent),
+			Total:       float32(v.Total),
 		}
 
-		memUtil.free = v.Free
-		memUtil.used = v.UsedPercent
-		memUtil.total = v.Total
+		hostDetails, err := getHostInfo()
 
-		if publish {
-			fmt.Printf("Total: %v, Free:%v, UsedPercent:%f%%\n", v.Total, v.Free, v.UsedPercent)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			r, err := c.SendUsage(ctx, &pb.UsageData{
-				CpuUsage: float32(cpuUtil.cpuPercent),
-				RamUsage: &pb.MemoryUsage{
-					Free:        float32(memUtil.free),
-					UsedPercent: float32(memUtil.used),
-					Total:       float32(memUtil.total),
-				},
-			})
-			if err != nil {
-				log.Fatalf("could not send usage: %v", err)
-			}
-			log.Printf("Response: %s", r.Message)
-		} else {
-			fmt.Printf("nothing to report\n")
+		if err != nil {
+			log.Fatalf("Error getting host information %s", err)
 		}
+
+		cpuUsage, err := getCPUUsage()
+		if err != nil {
+			log.Fatalf("Error getting cpu usage %s", err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		r, err := c.SendUsage(ctx, &pb.UsageData{
+			CpuUsage:    cpuUsage,
+			RamUsage:    memoryUsage,
+			HostDetails: hostDetails,
+		})
+		if err != nil {
+			log.Fatalf("could not send usage: %v", err)
+		}
+		log.Printf("Response: %s", r.Message)
 	}
+}
+
+func getCPUUsage() (float32, error) {
+
+	cpuPercent, err := cpu.Percent(time.Second, true)
+	if err != nil {
+		fmt.Printf("Failed getting the cpu percent: %s", err)
+	}
+
+	return float32(cpuPercent[0]), nil
+}
+
+func getHostInfo() (*pb.HostDetails, error) {
+	hostInfo, err := host.Info()
+	if err != nil {
+		fmt.Printf("Failed getting the host: %s", err)
+	}
+
+	return &pb.HostDetails{
+		Hostname:      hostInfo.Hostname,
+		Uptime:        hostInfo.Uptime,
+		KernelVersion: hostInfo.KernelVersion,
+		KernelArch:    hostInfo.KernelArch,
+		Os:            hostInfo.OS,
+		BootTime:      hostInfo.BootTime,
+		HostId:        hostInfo.HostID,
+	}, nil
 }

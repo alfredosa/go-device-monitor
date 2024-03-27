@@ -12,6 +12,7 @@ service MonitorService {
 message UsageData {
   float cpuUsage = 1;
   MemoryUsage ramUsage = 2;
+  HostDetails hostDetails = 3;
 }
 
 // Nested message for RAM usage details.
@@ -19,6 +20,16 @@ message MemoryUsage {
   float free = 1;
   float usedPercent = 2;
   float total = 3;
+}
+
+message HostDetails {
+  string hostname = 1;
+  string os = 2;
+  string kernelVersion = 3;
+  string kernelArch = 4;
+  uint64 bootTime = 5;
+  uint64 uptime = 6;
+  string hostId = 7;
 }
 
 // The response message containing the server's response.
