@@ -12,12 +12,12 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 // BUG: SHOULD only track and send data. Do not store unecessary stuff on the heap :D it should be lightweight
 func main() {
-	// TODO: GET THIS REMOVED :) IT was to be read byu variable set in docker
-	// TODO: remove grpc with insecure, its deprecated
 	server_host := os.Getenv("SERVER_HOST")
 
 	// NOTE: For now we use localhost :D
@@ -33,13 +33,14 @@ func main() {
 		log.Fatalf("Server port not set")
 	}
 
-	conn, err := grpc.Dial(server_host+":"+port, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.Dial(server_host+":"+port, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
 	c := pb.NewMonitorServiceClient(conn)
+	md := metadata.New(map[string]string{"authorization": "Bearer " + os.Getenv("BEARER_TOKEN")})
 
 	for {
 		time.Sleep(10 * time.Second)
@@ -62,8 +63,8 @@ func main() {
 			log.Fatalf("Error getting cpu usage %s", err)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
+		ctx := metadata.NewOutgoingContext(context.Background(), md)
+
 		r, err := c.SendUsage(ctx, &pb.UsageData{
 			CpuUsage:    cpuUsage,
 			RamUsage:    memoryUsage,
